@@ -8,7 +8,9 @@ import {
   buildPayload,
   buildPromptText,
   buildWorkflowRequest,
+  encodeFile,
   extractImageItems,
+  guessMimeType,
   helpText,
   invokeApi,
   main,
@@ -81,6 +83,23 @@ test('buildPayload sends input image before text for edit requests', async () =>
     assert.equal(payload.contents[0].parts[0].inlineData?.mimeType, 'image/png');
     assert.equal(typeof payload.contents[0].parts[1].text, 'string');
     assert.equal(payload.contents[0].parts[1].text.includes('Replace the cat head with a dog head'), true);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('guessMimeType detects jpeg bytes even when file path has no extension', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'banana-mime-sniff-'));
+  const inputPath = join(tempDir, 'upload-image');
+
+  try {
+    const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08]);
+    await writeFile(inputPath, jpegBytes);
+
+    assert.equal(guessMimeType(inputPath), 'image/jpeg');
+
+    const encoded = await encodeFile(inputPath);
+    assert.equal(encoded.mimeType, 'image/jpeg');
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -304,6 +323,91 @@ test('main handles reply-target edit requests end-to-end', async () => {
     assert.equal(parsed.model_routing.modelId, 'google/gemini-3-pro-image-preview');
     assert.equal(parsed.output_files.length, 1);
     assert.equal(parsed.mediaUrl.includes('image-1---'), true);
+    await access(parsed.output_files[0]);
+  } finally {
+    global.fetch = originalFetch;
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('main handles explicit uploaded image edit requests end-to-end', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'banana-main-upload-edit-'));
+  const outputDir = join(tempDir, 'output');
+  const mediaDir = join(tempDir, 'media');
+  const uploadPath = join(tempDir, 'upload-image');
+  const originalFetch = global.fetch;
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const writes = [];
+  const errors = [];
+  const capturedPayloads = [];
+
+  try {
+    const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08]);
+    await writeFile(uploadPath, jpegBytes);
+
+    global.fetch = async (_url, options) => {
+      capturedPayloads.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        async json() {
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'image/png',
+                        data: Buffer.from('edited-upload-image').toString('base64'),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+      };
+    };
+
+    process.stdout.write = ((chunk, encoding, callback) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString(encoding));
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return true;
+    });
+    process.stderr.write = ((chunk, encoding, callback) => {
+      errors.push(typeof chunk === 'string' ? chunk : chunk.toString(encoding));
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return true;
+    });
+
+    const exitCode = await main([
+      '--task', '把这张图里的猫耳朵改成狗耳朵',
+      '--input-image-path', uploadPath,
+      '--thread-id', 'thread-upload-edit',
+      '--api-key', 'test-key',
+      '--output-dir', outputDir,
+      '--base-url', 'https://zenmux.ai/api/vertex-ai',
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(errors, []);
+    assert.equal(capturedPayloads.length, 1);
+    assert.equal(capturedPayloads[0].contents[0].parts[0].inlineData?.mimeType, 'image/jpeg');
+    assert.equal(typeof capturedPayloads[0].contents[0].parts[1].text, 'string');
+
+    const parsed = JSON.parse(writes.join(''));
+    assert.equal(parsed.error, null);
+    assert.equal(parsed.image_context_source, 'explicit_attachment');
+    assert.equal(parsed.model_routing.modelId, 'google/gemini-3-pro-image-preview');
+    assert.equal(parsed.output_files.length, 1);
     await access(parsed.output_files[0]);
   } finally {
     global.fetch = originalFetch;

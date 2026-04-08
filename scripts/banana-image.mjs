@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -204,6 +204,45 @@ export async function buildWorkflowRequest({
   };
 }
 
+export function sniffMimeTypeFromBytes(bytes) {
+  if (!bytes || bytes.length < 4) {
+    return null;
+  }
+
+  if (bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+    && bytes[4] === 0x0d
+    && bytes[5] === 0x0a
+    && bytes[6] === 0x1a
+    && bytes[7] === 0x0a) {
+    return 'image/png';
+  }
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  if (bytes.length >= 6) {
+    const header = Buffer.from(bytes.slice(0, 6)).toString('ascii');
+    if (header === 'GIF87a' || header === 'GIF89a') {
+      return 'image/gif';
+    }
+  }
+
+  if (bytes.length >= 12) {
+    const riff = Buffer.from(bytes.slice(0, 4)).toString('ascii');
+    const webp = Buffer.from(bytes.slice(8, 12)).toString('ascii');
+    if (riff === 'RIFF' && webp === 'WEBP') {
+      return 'image/webp';
+    }
+  }
+
+  return null;
+}
+
 export function guessMimeType(filePath) {
   switch (extname(filePath).toLowerCase()) {
     case '.jpg':
@@ -213,8 +252,19 @@ export function guessMimeType(filePath) {
       return 'image/webp';
     case '.gif':
       return 'image/gif';
-    default:
+    case '.png':
       return 'image/png';
+    default: {
+      try {
+        const detected = sniffMimeTypeFromBytes(readFileSync(filePath));
+        if (detected) {
+          return detected;
+        }
+      } catch {
+        // Fall back to png when the file cannot be read during mime guessing.
+      }
+      return 'image/png';
+    }
   }
 }
 
