@@ -1,17 +1,14 @@
 # gift-keyframe-edit
 
-`gift-keyframe-edit` handles Banana-based keyframe generation and editing.
+This repository hosts the installable `gift-keyframe-edit` skill in the
+[`gift-keyframe-edit/`](./gift-keyframe-edit/) subdirectory.
 
-## Responsibilities
+Use this GitHub URL when installing through a URL-based skill installer:
 
-- text-to-image keyframe generation
-- image-to-image editing
-- inpaint with a mask
-- background replacement
-- continue editing the latest successful image in a thread
+`https://github.com/aoiro0X0/gift-keyframe-edit/tree/main/gift-keyframe-edit`
 
-## Test
+For local verification:
 
 ```powershell
-node --test .\tests\*.test.mjs
+node --test .\gift-keyframe-edit\tests\*.test.mjs
 ```
