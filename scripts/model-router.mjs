@@ -11,16 +11,16 @@
 
 export const DEFAULT_REGISTRY = [
   {
+    id: 'google/gemini-2.5-flash-image',
+    tags: ['txt2img', 'creative', 'concept'],
+    provider: 'zenmux',
+    description: '适合通过 ZenMux 直接进行文生图，兼顾可用性和成本',
+  },
+  {
     id: 'google/gemini-3-pro-image-preview',
     tags: ['edit', 'inpaint', 'combine', 'background-replace', 'img2img'],
     provider: 'zenmux',
     description: '擅长图像编辑、局部修改、多参考图特征组合',
-  },
-  {
-    id: 'bytedance/seedream-3',
-    tags: ['txt2img', 'creative', 'concept'],
-    provider: 'internal',
-    description: '擅长从零创意生图，视觉表现力强',
   },
 ];
 
