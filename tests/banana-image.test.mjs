@@ -11,6 +11,7 @@ import {
   extractImageItems,
   helpText,
   invokeApi,
+  main,
   runWorkflow,
 } from '../scripts/banana-image.mjs';
 
@@ -225,4 +226,89 @@ test('runWorkflow exposes OpenClaw-compatible media URLs for generated images', 
 test('helpText does not advertise design-document creation in the keyframe edit skill', () => {
   const text = helpText();
   assert.equal(text.includes('--create-design-doc'), false);
+});
+
+test('main handles reply-target edit requests end-to-end', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'banana-main-edit-'));
+  const outputDir = join(tempDir, 'output');
+  const mediaDir = join(tempDir, 'media');
+  const replyPath = join(tempDir, 'reply.png');
+  const originalFetch = global.fetch;
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const writes = [];
+  const errors = [];
+  const capturedPayloads = [];
+
+  try {
+    await writeFile(replyPath, 'reply-image');
+
+    global.fetch = async (_url, options) => {
+      capturedPayloads.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        async json() {
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'image/png',
+                        data: Buffer.from('edited-image').toString('base64'),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+      };
+    };
+
+    process.stdout.write = ((chunk, encoding, callback) => {
+      writes.push(typeof chunk === 'string' ? chunk : chunk.toString(encoding));
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return true;
+    });
+    process.stderr.write = ((chunk, encoding, callback) => {
+      errors.push(typeof chunk === 'string' ? chunk : chunk.toString(encoding));
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return true;
+    });
+
+    const exitCode = await main([
+      '--task', '其他保持不变，把小猫的头换成狗头',
+      '--reply-target-image-path', replyPath,
+      '--thread-id', 'thread-reply-edit',
+      '--api-key', 'test-key',
+      '--output-dir', outputDir,
+      '--base-url', 'https://zenmux.ai/api/vertex-ai',
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(errors, []);
+    assert.equal(capturedPayloads.length, 1);
+    assert.equal(capturedPayloads[0].contents[0].parts[0].inlineData?.mimeType, 'image/png');
+    assert.equal(typeof capturedPayloads[0].contents[0].parts[1].text, 'string');
+
+    const parsed = JSON.parse(writes.join(''));
+    assert.equal(parsed.error, null);
+    assert.equal(parsed.image_context_source, 'reply_target');
+    assert.equal(parsed.model_routing.modelId, 'google/gemini-3-pro-image-preview');
+    assert.equal(parsed.output_files.length, 1);
+    assert.equal(parsed.mediaUrl.includes('image-1---'), true);
+    await access(parsed.output_files[0]);
+  } finally {
+    global.fetch = originalFetch;
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
