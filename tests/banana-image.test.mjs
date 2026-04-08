@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -55,6 +55,34 @@ test('buildPayload emits Vertex AI generateContent payload for image generation'
       seed: 7,
     },
   });
+});
+
+test('buildPayload sends input image before text for edit requests', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'banana-edit-payload-'));
+  const inputPath = join(tempDir, 'input.png');
+
+  try {
+    await writeFile(inputPath, 'fake-image');
+
+    const payload = await buildPayload({
+      task: 'Replace the cat head with a dog head while keeping everything else the same',
+      mode: 'img2img',
+      model: 'google/gemini-3-pro-image-preview',
+      apiVersion: 'v1',
+      inputImagePath: inputPath,
+      maskPath: null,
+      referenceImagePaths: [],
+      size: null,
+      steps: null,
+      seed: null,
+    });
+
+    assert.equal(payload.contents[0].parts[0].inlineData?.mimeType, 'image/png');
+    assert.equal(typeof payload.contents[0].parts[1].text, 'string');
+    assert.equal(payload.contents[0].parts[1].text.includes('Replace the cat head with a dog head'), true);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('invokeApi uses Vertex AI generateContent endpoint derived from provider and model', async () => {

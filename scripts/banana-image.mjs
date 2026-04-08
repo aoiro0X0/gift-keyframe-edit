@@ -281,16 +281,28 @@ export function buildInlineDataPart(file) {
 }
 
 export async function buildPayload(request) {
-  const parts = [{ text: buildPromptText(request) }];
+  const parts = [];
 
+  // Edit requests work more reliably when the source image comes before the instruction text.
   if (request.inputImagePath) {
     parts.push(buildInlineDataPart(await encodeFile(request.inputImagePath)));
   }
-  for (const referencePath of request.referenceImagePaths) {
-    parts.push(buildInlineDataPart(await encodeFile(referencePath)));
-  }
-  if (request.maskPath) {
-    parts.push(buildInlineDataPart(await encodeFile(request.maskPath)));
+  if (request.inputImagePath) {
+    for (const referencePath of request.referenceImagePaths) {
+      parts.push(buildInlineDataPart(await encodeFile(referencePath)));
+    }
+    if (request.maskPath) {
+      parts.push(buildInlineDataPart(await encodeFile(request.maskPath)));
+    }
+    parts.push({ text: buildPromptText(request) });
+  } else {
+    parts.push({ text: buildPromptText(request) });
+    for (const referencePath of request.referenceImagePaths) {
+      parts.push(buildInlineDataPart(await encodeFile(referencePath)));
+    }
+    if (request.maskPath) {
+      parts.push(buildInlineDataPart(await encodeFile(request.maskPath)));
+    }
   }
 
   const generationConfig = {
