@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -126,8 +127,57 @@ export function resolveOpenClawMediaDir(openClawMediaDir, env = process.env) {
   return null;
 }
 
-export function resolveApiKeyFromEnv(env = process.env) {
-  return resolveFirstEnv(API_KEY_ENV_NAMES, env);
+export function readWindowsPersistentEnv(name, { execFileSyncImpl = execFileSync } = {}) {
+  const escapedName = String(name).replace(/'/g, "''");
+  const powershellArgs = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+  ];
+
+  for (const target of ['User', 'Machine']) {
+    try {
+      const output = execFileSyncImpl('powershell.exe', [
+        ...powershellArgs,
+        `[Environment]::GetEnvironmentVariable('${escapedName}', '${target}')`,
+      ], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+
+      if (output) {
+        return output;
+      }
+    } catch {
+      // Fall through to the next scope or caller-visible null.
+    }
+  }
+
+  return null;
+}
+
+export function resolveApiKeyFromEnv(
+  env = process.env,
+  {
+    platform = process.platform,
+    readPersistentEnv = readWindowsPersistentEnv,
+  } = {},
+) {
+  const directValue = resolveFirstEnv(API_KEY_ENV_NAMES, env);
+  if (directValue) {
+    return directValue;
+  }
+
+  if (platform === 'win32' && typeof readPersistentEnv === 'function') {
+    for (const envName of API_KEY_ENV_NAMES) {
+      const persistentValue = readPersistentEnv(envName);
+      if (typeof persistentValue === 'string' && persistentValue.trim()) {
+        return persistentValue.trim();
+      }
+    }
+  }
+
+  return null;
 }
 
 export async function resolveApiKey(apiKey, { promptForApiKey, env = process.env } = {}) {

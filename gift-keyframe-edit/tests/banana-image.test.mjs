@@ -14,6 +14,7 @@ import {
   helpText,
   invokeApi,
   main,
+  resolveApiKeyFromEnv,
   runWorkflow,
 } from '../scripts/banana-image.mjs';
 
@@ -26,6 +27,15 @@ test('buildWorkflowRequest accepts GEMINI_API_KEY from env', async () => {
   });
 
   assert.equal(request.apiKey, 'gemini-key');
+});
+
+test('resolveApiKeyFromEnv falls back to Windows user environment lookup when process env is empty', () => {
+  const apiKey = resolveApiKeyFromEnv({}, {
+    platform: 'win32',
+    readPersistentEnv: (name) => (name === 'ZENMUX_API_KEY' ? 'persistent-key' : null),
+  });
+
+  assert.equal(apiKey, 'persistent-key');
 });
 
 test('buildPayload emits Vertex AI generateContent payload for image generation', async () => {
