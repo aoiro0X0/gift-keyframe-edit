@@ -17,6 +17,7 @@ export const DEFAULT_OPENCLAW_MEDIA_SUBDIR = ['.openclaw', 'media', 'tool-image-
 export const API_KEY_ENV_NAMES = ['ZENMUX_API_KEY', 'GEMINI_API_KEY'];
 export const BASE_URL_ENV_NAMES = ['ZENMUX_BASE_URL', 'GOOGLE_GEMINI_BASE_URL'];
 export const MODEL_ENV_NAMES = ['OPENCLAW_BANANA_MODEL', 'ZENMUX_IMAGE_MODEL'];
+export const MISSING_API_KEY_FOLLOW_UP = '请提供图像生成 API Key（ZENMUX_API_KEY 或 GEMINI_API_KEY）。你可以在 https://zenmux.ai 或 https://aistudio.google.com/apikey 获取。获取后请告诉我，我帮你配置好。';
 
 const CN_BACKGROUND_WORD = '背景';
 const CN_BACKGROUND_REPLACE_VERBS = ['换', '替换', '抠图'];
@@ -798,6 +799,25 @@ export async function promptForApiKey(prompt) {
   }
 }
 
+export function buildMissingApiKeyFollowUp({
+  task,
+  apiKey,
+  env = process.env,
+  resolveApiKey = resolveApiKeyFromEnv,
+} = {}) {
+  const explicitApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  const resolvedApiKey = explicitApiKey || resolveApiKey(env);
+  if (resolvedApiKey) {
+    return null;
+  }
+
+  return {
+    status: 'follow_up_required',
+    follow_up_question: MISSING_API_KEY_FOLLOW_UP,
+    original_task: task,
+  };
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const args = parseCliArgs(argv);
   if (args.help) {
@@ -831,6 +851,16 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const resolvedInputImagePath = imageContext.inputImagePath;
+  const missingApiKeyFollowUp = buildMissingApiKeyFollowUp({
+    task: args.task,
+    apiKey: args['api-key'],
+    env: process.env,
+  });
+  if (missingApiKeyFollowUp) {
+    process.stdout.write(`${JSON.stringify(missingApiKeyFollowUp, null, 2)}\n`);
+    return 0;
+  }
+  const resolvedApiKey = (typeof args['api-key'] === 'string' ? args['api-key'].trim() : '') || resolveApiKeyFromEnv(process.env);
 
   const { modelId, reason: modelReason } = routeModel({
     modelMode: args['model-mode'] ?? 'auto',
@@ -845,7 +875,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   const request = await buildWorkflowRequest({
     task: args.task,
-    apiKey: args['api-key'],
+    apiKey: resolvedApiKey,
     inputImagePath: resolvedInputImagePath,
     maskPath: args['mask-path'],
     referenceImagePaths,
@@ -855,7 +885,6 @@ export async function main(argv = process.argv.slice(2)) {
     outputDir: args['output-dir'],
     model: modelId,
     apiVersion: args['api-version'],
-    promptForApiKey,
     env: process.env,
   });
 

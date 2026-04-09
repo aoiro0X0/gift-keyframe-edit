@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import {
+  buildMissingApiKeyFollowUp,
   buildPayload,
   buildPromptText,
   buildWorkflowRequest,
@@ -17,6 +18,21 @@ import {
   resolveApiKeyFromEnv,
   runWorkflow,
 } from '../scripts/banana-image.mjs';
+
+test('buildMissingApiKeyFollowUp returns a structured follow-up when no API key is available', () => {
+  const followUp = buildMissingApiKeyFollowUp({
+    task: 'Create a banana ad image',
+    apiKey: null,
+    env: {},
+    resolveApiKey: () => null,
+  });
+
+  assert.deepEqual(followUp, {
+    status: 'follow_up_required',
+    follow_up_question: '请提供图像生成 API Key（ZENMUX_API_KEY 或 GEMINI_API_KEY）。你可以在 https://zenmux.ai 或 https://aistudio.google.com/apikey 获取。获取后请告诉我，我帮你配置好。',
+    original_task: 'Create a banana ad image',
+  });
+});
 
 test('buildWorkflowRequest accepts GEMINI_API_KEY from env', async () => {
   const request = await buildWorkflowRequest({
